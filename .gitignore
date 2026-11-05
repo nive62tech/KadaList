@@ -110,6 +110,13 @@ coverage/
 # Symbols
 app.*.symbols
 
+# Local IDE files
+.idea/
+*.iml
+
+# Keep application dependency versions reproducible.
+!pubspec.lock
+
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
 !**/ios/**/default.mode2v3
