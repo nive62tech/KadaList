@@ -9,7 +9,7 @@ Money uses integer paise throughout calculation and formatting. Quantities are s
 
 All shopping data stays in the local SQLite database (`kadalist.db`) and survives app restarts. Deleting a list also deletes its items. Uninstalling the app or clearing its storage removes local data.
 
-Android cloud backup is disabled, and database files are excluded from legacy backup and Android 12+ cloud backup/device transfer rules. Main, debug and profile source manifests have no INTERNET permission. There are no analytics, Firebase or cloud service dependencies. Removing debug network permission can limit Flutter hot reload/debugger connectivity. Voice recognition is not implemented.
+Android cloud backup is disabled, and database files are excluded from legacy backup and Android 12+ cloud backup/device transfer rules. Main, debug and profile source manifests have no INTERNET permission. There are no analytics, Firebase or cloud service dependencies. Removing debug network permission can limit Flutter hot reload/debugger connectivity. Android voice input runs whisper.cpp locally with a user-imported multilingual model and microphone permission.
 
 Open a shopping list and tap the toolbar's **Paste or type grocery list** action to import text. Paste/type Malayalam, English, Manglish or mixed-language text, then choose **Review extracted items**. Edit names, quantities, units and categories, uncheck unwanted items, and explicitly **Confirm and save**. Leaving the review does not save anything. Imported items have unknown actual/estimated prices and are not purchased. A confirmed batch is saved atomically through the existing SQLite repository; the schema stays at v2.
 
@@ -25,7 +25,9 @@ Examples:
 | `0.5 kg Dragon Fruit` | Dragon Fruit: 0.5 kg; unknown name retained for review |
 | `some rice` | Rice: quantity and unit unresolved; user must confirm |
 
-This is not a general natural-language model. Spelling variants, regional number forms and inflections outside the finite vocabulary require review. Use commas/new lines to separate unfamiliar multiword names; unseparated unknown phrases may remain one candidate. Quantities use the app's existing three-decimal precision. Unsupported fractions (such as 1/3), implied/shared amounts and complex pack sizes require manual editing. The interface/canonical recognized names currently use English while preserving the original Malayalam/Manglish input alongside them. No microphone recording or speech recognition is included.
+This is not a general natural-language model. Spelling variants, regional number forms and inflections outside the finite vocabulary require review. Use commas/new lines to separate unfamiliar multiword names; unseparated unknown phrases may remain one candidate. Quantities use the app's existing three-decimal precision. Unsupported fractions (such as 1/3), implied/shared amounts and complex pack sizes require manual editing. The interface/canonical recognized names currently use English while preserving the original Malayalam/Manglish input alongside them.
+
+For voice input, use **Import model file** on the grocery text screen to select a locally transferred multilingual GGML Whisper tiny, base or small model. Choose Malayalam, English or experimental automatic/mixed mode, then **Speak offline** and **Stop and transcribe**. Recording is limited to 20 seconds and stays in memory. Edit the transcript and use the existing item review before saving. Models are not bundled or downloaded by the app. The native engine is built from a pinned, included source archive for ARM64 and x86-64 Android; 32-bit Android is not supported. Malayalam is supported by the multilingual model vocabulary, but accuracy, mixed-language behavior, speed and memory need physical-device evaluation. See [research, model setup, resource estimates and device validation](docs/offline-speech.md).
 
 Code organization:
 

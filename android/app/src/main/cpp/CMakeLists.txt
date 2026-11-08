@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.22)
+project(kadalist_speech LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+set(GGML_CPU_ALL_VARIANTS OFF CACHE BOOL "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+include(FetchContent)
+# Local, pinned source archive: configuring/building speech never downloads code.
+FetchContent_Declare(whisper
+    URL "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../third_party/whisper-v1.8.3.tar.gz"
+    URL_HASH SHA256=870ba21409cdf66697dc4db15ebdb13bc67037d76c7cc63756c81471d8f1731a)
+FetchContent_MakeAvailable(whisper)
+add_library(kadalist_speech SHARED speech.cpp)
+target_link_libraries(kadalist_speech PRIVATE whisper android log)
+target_link_options(kadalist_speech PRIVATE "-Wl,-z,max-page-size=16384")

@@ -31,6 +31,19 @@ class ListScreen extends StatelessWidget {
         title: Text(list.name),
         actions: [
           IconButton(
+            tooltip: 'Add groceries by voice',
+            onPressed: store.busy
+                ? null
+                : () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          GroceryTextScreen(listId: listId, voiceFirst: true),
+                    ),
+                  ),
+            icon: const Icon(Icons.mic),
+          ),
+          IconButton(
             tooltip: 'Paste or type grocery list',
             onPressed: store.busy
                 ? null
