@@ -22,6 +22,28 @@ ShoppingItem item({
 );
 
 void main() {
+  test(
+    'exact paid totals override unit costs without multiplying quantity',
+    () {
+      const paid = ShoppingItem(
+        id: 1,
+        listId: 1,
+        name: 'Rice',
+        quantity: 0.003,
+        price: 10000,
+        actualTotal: 12345,
+        estimatedPrice: 50000,
+        purchased: true,
+      );
+      final summary = BudgetSummary(10000, [paid, item(purchased: true)]);
+      expect(paid.total, 12345);
+      expect(summary.actualSpent, 12345);
+      expect(summary.remaining, -2345);
+      expect(summary.planned, 12345);
+      expect(summary.pendingPrices, 1);
+      expect(summary.unknownProjections, 1);
+    },
+  );
   test('fractional costs round half up once per item using integer paise', () {
     expect(item(quantity: 0.5, price: 12345).total, 6173);
     expect(item(quantity: 0.25, price: 10001).total, 2500);

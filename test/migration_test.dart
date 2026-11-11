@@ -8,6 +8,103 @@ import 'package:kadalist/repositories/shopping_repository.dart';
 void main() {
   sqfliteFfiInit();
   test(
+    'v3 migration retains purchase totals and budgets and allows bunches',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('kadalist_v3');
+      final path = '${dir.path}/test.db';
+      final old = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 3,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE shopping_lists (id INTEGER PRIMARY KEY, name TEXT, budget INTEGER, created_at INTEGER)',
+            );
+            await db.execute(
+              "CREATE TABLE shopping_items (id INTEGER PRIMARY KEY, list_id INTEGER, name TEXT, quantity_millis INTEGER, actual_total INTEGER, price INTEGER, estimated_price INTEGER, unit TEXT CHECK(unit IN ('kg','g','litre','ml','packet','piece')), category TEXT, purchased INTEGER)",
+            );
+            await db.execute(
+              "INSERT INTO shopping_lists VALUES (1,'Weekly',10000,1)",
+            );
+            await db.execute(
+              "INSERT INTO shopping_items VALUES (7,1,'Rice',2000,3500,2000,4000,'kg','essential',1)",
+            );
+          },
+        ),
+      );
+      final before = await old.query('shopping_items');
+      await old.close();
+      final app = AppDatabase(databasePath: path, factory: databaseFactoryFfi);
+      try {
+        final db = await app.database;
+        expect(await db.query('shopping_items'), before);
+        expect((await db.query('shopping_lists')).single['budget'], 10000);
+        await db.update('shopping_items', {'unit': 'bunch'});
+        expect((await db.query('shopping_items')).single['unit'], 'bunch');
+      } finally {
+        await app.close();
+        await dir.delete(recursive: true);
+      }
+    },
+  );
+  test(
+    'v2 migration preserves unit prices and persists exact purchase totals',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('kadalist_v2');
+      final path = '${dir.path}/test.db';
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 2,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE shopping_lists (id INTEGER PRIMARY KEY, name TEXT, budget INTEGER, created_at INTEGER)',
+            );
+            await db.execute(
+              "CREATE TABLE shopping_items (id INTEGER PRIMARY KEY, list_id INTEGER, name TEXT, quantity_millis INTEGER, price INTEGER, estimated_price INTEGER, unit TEXT, category TEXT, purchased INTEGER)",
+            );
+            await db.insert('shopping_lists', {
+              'id': 1,
+              'name': 'Weekly',
+              'budget': 1000,
+              'created_at': 1,
+            });
+            await db.insert('shopping_items', {
+              'id': 1,
+              'list_id': 1,
+              'name': 'Rice',
+              'quantity_millis': 3,
+              'price': 10000,
+              'estimated_price': 20000,
+              'unit': 'kg',
+              'category': 'essential',
+              'purchased': 1,
+            });
+          },
+        ),
+      );
+      await legacy.close();
+      final db = AppDatabase(databasePath: path, factory: databaseFactoryFfi);
+      try {
+        final repo = ShoppingRepository(db);
+        expect((await repo.items()).single.total, 30);
+        await repo.purchaseWithTotal(1, 1235);
+        expect((await repo.items()).single.total, 1235);
+        await db.close();
+        expect((await repo.items()).single.actualTotal, 1235);
+        await repo.purchaseWithTotal(1, null);
+        final pending = (await repo.items()).single;
+        expect(pending.purchased, isTrue);
+        expect(pending.total, isNull);
+        expect(pending.estimatedTotal, 60);
+        await expectLater(repo.purchaseWithTotal(1, -1), throwsArgumentError);
+      } finally {
+        await db.close();
+        await dir.delete(recursive: true);
+      }
+    },
+  );
+  test(
     'v1 migration preserves lists, quantities, prices and purchase states',
     () async {
       final dir = await Directory.systemTemp.createTemp('kadalist_migration');

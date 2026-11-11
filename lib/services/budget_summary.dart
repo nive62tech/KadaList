@@ -3,9 +3,9 @@ import '../models/shopping_item.dart';
 class BudgetSummary {
   BudgetSummary(this.budget, List<ShoppingItem> items)
     : actualSpent = items
-          .where((i) => i.purchased)
-          .fold(0, (sum, i) => sum + (i.total ?? 0)),
-      pendingPrices = items.where((i) => i.purchased && i.price == null).length,
+          .where((i) => i.purchased && i.total != null)
+          .fold(0, (sum, i) => sum + i.total!),
+      pendingPrices = items.where((i) => i.purchased && i.total == null).length,
       estimatedEssential = items
           .where((i) => !i.purchased && i.category == ItemCategory.essential)
           .fold(0, (sum, i) => sum + (i.projectedTotal ?? 0)),

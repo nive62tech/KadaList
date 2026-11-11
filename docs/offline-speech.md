@@ -57,7 +57,9 @@ a physical Android device in this workspace.
    tap **Speak offline**, speak a short list, then **Stop and transcribe**.
    The microphone stops after at most 20 seconds even if the UI timer is delayed.
    Recognition runs on one background executor, using at most four CPU threads.
-5. Correct the transcript in **Grocery text**, then **Review extracted items**.
+5. Inspect **Review speech transcript**, then explicitly **Add to grocery text**
+   or **Discard**. Existing typed text stays untouched until acceptance. Correct
+   accepted text in **Grocery text**, then **Review extracted items**.
    Explicitly confirm names, quantities and units before saving. Speech text is
    appended to existing text, never saved directly as shopping records.
 
@@ -80,14 +82,78 @@ Denied permission, no model, invalid model, short recording and capture/decode
 errors leave manual text entry available. Uninstall/clear app storage deletes the
 private model along with shopping data; Android backup is disabled.
 
+## Android 12 incorrect-transcript investigation (2026-11-09)
+
+Reported: imported `ggml-tiny.bin`, roughly 30 seconds to recognize
+`oru kilo ari, randu kilo panjasara, onnar kilo, kariveppila, kurumulaku`,
+with incorrect output `3-4小孩`. The physical recording and installed APK source
+revision were unavailable, so the exact cause is unresolved. Do not interpret
+the Chinese output as evidence that the input was Chinese, or invent a corrected
+grocery list. In particular, `onnar kilo` has no stated item.
+
+The inspected working source already selected `ml` by default, offered English
+and experimental automatic/mixed, and set `translate=false`. The pinned upstream
+implementation detects language only for `auto`/empty language or detect-only
+mode. Forced Malayalam does not guarantee Malayalam-only output tokens. There
+was no demonstrated PCM conversion error: Android requests 16000 Hz mono PCM16,
+reads signed shorts, divides by 32768, and JNI passes float samples directly to
+`whisper_full`. Native input is bounded to 320000 samples. No resampler is used.
+
+Confirmed gaps and changes:
+
+- Validate the initialized AudioRecord sample rate, channel count and encoding;
+  fail visibly instead of passing an unexpected format to Whisper. Native code
+  also rejects non-finite/out-of-range samples and unsupported language codes.
+- Empty/short and capture errors are rejected; near-silence now reports a useful
+  microphone/quiet-input error instead of looking like successful recognition.
+  The existing 0.001 RMS threshold remains an energy gate, not speech detection.
+- Show separate recording and processing elapsed time. Successful results expose
+  an expandable in-memory diagnostics view: sample count, sample-derived duration,
+  capture wall time, RMS, peak, clipped-sample count, capture-limit flag, selected
+  and decoded language, translation flag, model byte size, threads, model load
+  and inference milliseconds. No raw PCM or transcript is logged or written by
+  these diagnostics. Diagnostics disappear with the screen or next recording.
+- Warn at transcript review when capture reaches 20 seconds. Require explicit
+  acceptance before appending; discard/error leaves existing grocery text intact.
+- Retain the CPU thread cap of four and per-call model lifetime. Repeated model
+  loads are confirmed work, not a measured explanation of the entire 30 seconds.
+  Upstream's default temperature fallback can retry decoding; no quality-changing
+  decoding shortcuts or language heuristics were introduced.
+
+Physical-device follow-up, using a separately authorized updated build (none was
+built for this investigation):
+
+1. Preserve existing data and type `keep this` in Grocery text. In airplane mode
+   with Wi-Fi off, select Malayalam explicitly. Read the exact reported phrase,
+   stop immediately after speaking, and note recording versus processing time.
+2. Before accepting anything, inspect the raw transcript and diagnostics. Expect
+   `sampleRate=16000`, `channels=1`, `language=ml`, decoded language `ml`, and
+   `translate=false`. Compare `samples / 16000` with the spoken clip length and
+   capture wall time. Nonzero RMS/peak do not prove intelligible speech; high
+   clipping counts suggest distortion. Separate `loadMs` from `inferenceMs`.
+3. Discard a wrong transcript and confirm `keep this` survives. Accept another
+   clip and confirm it appends, can be corrected, and still requires grocery item
+   review before saving. Never assign an item to the incomplete `onnar kilo`.
+4. Repeat a short English reference with English selected, then explicitly choose
+   Automatic/mixed for the mixed reference. Record its decoded language rather
+   than assuming mixed-word recognition. Compare only locally supplied models;
+   do not infer tiny-model accuracy from import success.
+5. Test silence, microphone privacy disabled, very short recording, clipping/noise,
+   and a clip exceeding 20 seconds. Check errors or the truncation warning, Home/
+   screen lock cancellation, and preservation of typed text, SQLite and budgets.
+
+Flutter regression tests use mocked channel data; they validate language
+forwarding, timing/limit behavior and transcript acceptance, not native audio or
+ASR accuracy. Kotlin/JNI changes require compilation and physical Android 12
+validation in a future authorized build. No recordings were retained here.
+
 ## Validation and remaining device work
 
-Workspace validation: all **44 Flutter tests passed**, `flutter analyze` reported
-no issues, and debug/release Android APKs compiled. The final release APK contains
-the Flutter app and speech library for ARM64 and x86-64 only. APK permission
-inspection confirmed RECORD_AUDIO and no INTERNET permission. The speech shared
-libraries use 16 KiB ELF load alignment. These build checks do not demonstrate
-microphone capture or model accuracy on a running device.
+Current parser/voice revision: Dart formatting, Flutter analysis and mocked-channel
+Flutter tests are run locally. No APK is built and no weights are downloaded as
+part of this revision. Kotlin/JNI changes and real recording/inference have not
+been verified on a physical device. Model import validates compatibility; it
+does not establish recognition accuracy.
 
 Automated Flutter tests exercise the bridge contract and transcript → parser →
 review flow using a mocked native channel. They do not measure ASR quality.
@@ -114,3 +180,50 @@ Before calling speech production-ready, test on a physical ARM64 phone:
 Record model filename/hash, phone/Android version, clip reference, transcript,
 parser candidates, corrected items, timings and peak RSS. Keep real grocery
 recordings local. No physical device was connected during implementation.
+
+## Parser review rules
+
+Parsing uses a finite local lexicon and deterministic quantity rules. Missing
+units are never guessed. Conflicting leading/trailing amounts (for example
+`rand kilo thakkali moonnu kilo` and `noor pachamulak arakkilo`) leave quantity
+unresolved. `noor`/`nooru` mean one hundred, but do not imply grams or a price.
+`beens oru` recognizes Beans and one, requiring a unit choice. `rand kett cheera`
+is two bunches of spinach; `payar rand kett cheera` produces two candidates
+requiring quantity review because attachment is unclear. Use a comma or explicit
+joiner to clarify boundaries. Unknown names and qualifiers remain editable.
+
+Bunch is stored as its own unit. Schema v4 rebuilds the item table transactionally
+with the expanded unit constraint, copying IDs, list IDs, quantities, unit prices,
+estimates, exact purchase totals, categories and purchase flags. Lists and budgets
+are untouched. Do not clear app data to test migration.
+
+### Physical-device acceptance sequence for this revision
+
+Use an already installed compatible test build, or separately prepare an updated
+build when authorized. An existing older build cannot validate these changes.
+
+1. Keep existing shopping data. Note a list budget, a purchased item's exact total
+   and an unpurchased estimate. Install the updated build over the existing app
+   without uninstalling; confirm those values survive migration.
+2. On a clean test profile with no imported model, open a list, tap the toolbar
+   microphone, then Speak offline. Expect Model required and instructions to tap
+   Import model file, with no microphone permission request or refresh.
+3. Copy an independently supplied trusted multilingual GGML tiny/base/small .bin
+   onto the phone via USB. Tap Import model file. Cancel once; reject an .en model,
+   a non-.bin file and a truncated .bin. Import the valid file, restart the app,
+   then try an invalid replacement and verify the valid model remains usable.
+4. Enable airplane mode and turn Wi-Fi off. Choose Malayalam, tap Speak offline,
+   deny permission, and confirm visible guidance and preserved typed text. Retry
+   with permission allowed; verify Recording, Stop and transcribe, then Processing
+   on device and an editable transcript. Repeat for English and Automatic/mixed.
+5. Read each of the four reported failing phrases and the mixed-script examples
+   above. Correct recognition mistakes in the transcript, then Review extracted
+   items. Check conflict/unit warnings; resolve every quantity and unit before
+   saving. Back out once and verify nothing was saved. Confirm once and verify
+   SQLite items, bunch units, purchase-price dialogs and budgets.
+6. Test silence, very short clips, the 20-second limit, microphone privacy off,
+   permanent permission denial, Home, screen lock, back navigation and interrupted
+   inference. Expect visible errors or discarded results and continued typing.
+7. Record phone/Android version, model filename/hash, spoken reference, transcript,
+   corrections, loading/inference time and peak memory. Report actual results;
+   passing mocked Flutter tests is not evidence that speech recognition works.

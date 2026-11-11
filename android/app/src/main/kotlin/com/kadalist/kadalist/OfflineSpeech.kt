@@ -9,6 +9,8 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.provider.OpenableColumns
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.nio.ByteBuffer
@@ -25,6 +27,8 @@ class OfflineSpeech(private val activity: Activity, private val channel: MethodC
     }
     private external fun transcribe(path: String, samples: FloatArray, language: String): String
     private external fun validateModel(path: String): Boolean
+    private external fun decodeStats(): LongArray
+    private external fun decodedLanguage(): String
     private external fun abortDecode()
     private external fun resetDecodeAbort()
     private val worker = Executors.newSingleThreadExecutor()
@@ -39,6 +43,8 @@ class OfflineSpeech(private val activity: Activity, private val channel: MethodC
     private val cancelled = AtomicBoolean(false)
     private var audio = FloatArray(0)
     private var captureError: String? = null
+    private var captureMs = 0L
+    private var reachedLimit = false
     private var recorder: AudioRecord? = null
 
     init {
@@ -92,12 +98,29 @@ class OfflineSpeech(private val activity: Activity, private val channel: MethodC
                                 if (cancelled.get()) throw IllegalStateException("Recording cancelled.")
                                 captureError?.let { throw IllegalStateException(it) }
                                 if (audio.size < 1600) throw IllegalStateException("Recording too short. Try speaking for longer.")
+                                val rms = kotlin.math.sqrt(audio.sumOf { it.toDouble() * it } / audio.size)
+                                val peak = audio.maxOf { kotlin.math.abs(it) }
+                                check(rms >= 0.001) { "Recording is silent or too quiet. Check microphone privacy and try closer to the microphone." }
                                 val text = transcribe(model.absolutePath, audio, language)
+                                val stats = decodeStats()
+                                val response = mapOf(
+                                    "text" to text,
+                                    "diagnostics" to mapOf(
+                                        "sampleRate" to 16000, "channels" to 1,
+                                        "samples" to audio.size, "audioMs" to audio.size * 1000L / 16000,
+                                        "captureMs" to captureMs, "rms" to rms, "peak" to peak,
+                                        "clippedSamples" to audio.count { kotlin.math.abs(it) >= 32767f / 32768f },
+                                        "limitReached" to reachedLimit, "language" to language,
+                                        "translate" to false, "modelBytes" to model.length(),
+                                        "loadMs" to stats[0], "inferenceMs" to stats[1], "threads" to stats[2],
+                                        "recognizedLanguage" to decodedLanguage()
+                                    )
+                                )
                                 if (cancelled.get()) throw IllegalStateException("Recording cancelled.")
                                 main.post {
                                     if (!closed) {
                                         if (cancelled.get()) result.error("cancelled", "Recording cancelled.", null)
-                                        else result.success(text)
+                                        else result.success(response)
                                     }
                                 }
                             } catch (e: Exception) {
@@ -125,6 +148,10 @@ class OfflineSpeech(private val activity: Activity, private val channel: MethodC
                 throw IllegalStateException("Microphone is unavailable.")
             }
             recorder = input
+            check(input.sampleRate == 16000 && input.channelCount == 1 &&
+                input.audioFormat == AudioFormat.ENCODING_PCM_16BIT) {
+                "Microphone must provide 16 kHz mono PCM16 audio."
+            }
             input.startRecording()
             check(input.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Could not start microphone." }
             cancelled.set(false)
@@ -132,7 +159,10 @@ class OfflineSpeech(private val activity: Activity, private val channel: MethodC
             recording.set(true)
             captureError = null
             audio = FloatArray(0)
+            reachedLimit = false
+            captureMs = 0L
             worker.execute {
+                val started = SystemClock.elapsedRealtime()
                 val samples = FloatArray(16000 * 20)
                 val chunk = ShortArray(1600)
                 var count = 0
@@ -143,10 +173,12 @@ class OfflineSpeech(private val activity: Activity, private val channel: MethodC
                         for (i in 0 until read) samples[count++] = chunk[i] / 32768f
                     }
                     audio = if (cancelled.get()) FloatArray(0) else samples.copyOf(count)
+                    reachedLimit = count == samples.size
                 } catch (e: Exception) {
                     captureError = e.message
                     audio = FloatArray(0)
                 } finally {
+                    captureMs = SystemClock.elapsedRealtime() - started
                     try { input.stop() } catch (_: Exception) { }
                     input.release()
                     // Leave recording flag set after the duration limit until stop/cancel.
@@ -175,6 +207,12 @@ class OfflineSpeech(private val activity: Activity, private val channel: MethodC
         worker.execute {
             val temporary = File(activity.filesDir, "speech-model.import")
             try {
+                val displayName = activity.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                    if (it.moveToFirst()) it.getString(0) else null
+                } ?: uri.lastPathSegment.orEmpty()
+                require(displayName.endsWith(".bin", ignoreCase = true)) {
+                    "Select a local multilingual GGML Whisper .bin model using Import model file."
+                }
                 activity.contentResolver.openInputStream(uri).use { input ->
                     requireNotNull(input) { "Cannot read this local model file." }
                     temporary.outputStream().use { output ->

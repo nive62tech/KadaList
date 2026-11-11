@@ -143,6 +143,16 @@ class GroceryParser {
               : '';
           issues.add('Unknown grocery name; preserved as typed');
         }
+        final trailing = _amount(tokens, p);
+        if (prefix != null &&
+            trailing != null &&
+            (trailing.end == tokens.length ||
+                _joiners.contains(tokens[trailing.end].text) ||
+                _fillers.contains(tokens[trailing.end].text))) {
+          p = trailing.end;
+          millis = null;
+          issues.add('Conflicting quantities; confirm the intended amount');
+        }
         if (prefix == null) {
           // A vague amount must not become an exact quantity.
           while (p < tokens.length && _uncertain.contains(tokens[p].text)) {
@@ -152,6 +162,13 @@ class GroceryParser {
           final suffix = _amount(tokens, p);
           if (suffix != null) {
             millis = suffix.millis;
+            if (suffix.unit == ItemUnit.bunch &&
+                _knownName(tokens, suffix.end) != null) {
+              millis = null;
+              issues.add(
+                'Bunch quantity may belong to the next grocery; confirm attachment',
+              );
+            }
             unit = suffix.unit;
             p = suffix.end;
             if (suffix.issue != null) issues.add(suffix.issue!);

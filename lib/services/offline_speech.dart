@@ -12,7 +12,21 @@ class OfflineSpeech {
       await channel.invokeMethod<bool>('importModel') ?? false;
   Future<void> start(String language) =>
       channel.invokeMethod<void>('start', {'language': language});
-  Future<String> stop() async =>
-      await channel.invokeMethod<String>('stop') ?? '';
+  Future<SpeechResult> stop() async {
+    final response = await channel.invokeMapMethod<String, dynamic>('stop');
+    return SpeechResult(
+      response?['text'] as String? ?? '',
+      Map<String, dynamic>.from(response?['diagnostics'] as Map? ?? {}),
+    );
+  }
+
   Future<void> cancel() => channel.invokeMethod<void>('cancel');
+}
+
+class SpeechResult {
+  const SpeechResult(this.text, this.diagnostics);
+  final String text;
+
+  /// Aggregate measurements only; never contains audio.
+  final Map<String, dynamic> diagnostics;
 }

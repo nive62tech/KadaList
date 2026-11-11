@@ -14,7 +14,7 @@ class AppDatabase {
         databasePath ??
             path.join(await _factory.getDatabasesPath(), 'kadalist.db'),
         options: OpenDatabaseOptions(
-          version: 2,
+          version: 4,
           onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
           onCreate: (db, version) async {
             await db.execute(
@@ -34,6 +34,22 @@ class AppDatabase {
               );
               await db.execute('DROP TABLE legacy_items');
             }
+            if (oldVersion >= 2 && oldVersion < 3) {
+              await db.execute(
+                'ALTER TABLE shopping_items ADD COLUMN actual_total INTEGER CHECK(actual_total >= 0)',
+              );
+            }
+            if (oldVersion >= 2 && oldVersion < 4) {
+              await db.execute(
+                'ALTER TABLE shopping_items RENAME TO previous_items',
+              );
+              await db.execute('DROP INDEX IF EXISTS items_list_id');
+              await _createItems(db);
+              await db.execute(
+                'INSERT INTO shopping_items (id,list_id,name,quantity_millis,actual_total,price,estimated_price,unit,category,purchased) SELECT id,list_id,name,quantity_millis,actual_total,price,estimated_price,unit,category,purchased FROM previous_items',
+              );
+              await db.execute('DROP TABLE previous_items');
+            }
           },
         ),
       );
@@ -45,7 +61,7 @@ class AppDatabase {
 
   static Future<void> _createItems(Database db) async {
     await db.execute(
-      "CREATE TABLE shopping_items (id INTEGER PRIMARY KEY AUTOINCREMENT, list_id INTEGER NOT NULL REFERENCES shopping_lists(id) ON DELETE CASCADE, name TEXT NOT NULL, quantity_millis INTEGER NOT NULL CHECK(quantity_millis > 0 AND quantity_millis <= 9999000), price INTEGER CHECK(price >= 0), estimated_price INTEGER CHECK(estimated_price >= 0), unit TEXT NOT NULL DEFAULT 'piece' CHECK(unit IN ('kg','g','litre','ml','packet','piece')), category TEXT NOT NULL DEFAULT 'essential' CHECK(category IN ('essential','miscellaneous')), purchased INTEGER NOT NULL DEFAULT 0 CHECK(purchased IN (0,1)))",
+      "CREATE TABLE shopping_items (id INTEGER PRIMARY KEY AUTOINCREMENT, list_id INTEGER NOT NULL REFERENCES shopping_lists(id) ON DELETE CASCADE, name TEXT NOT NULL, quantity_millis INTEGER NOT NULL CHECK(quantity_millis > 0 AND quantity_millis <= 9999000), actual_total INTEGER CHECK(actual_total >= 0), price INTEGER CHECK(price >= 0), estimated_price INTEGER CHECK(estimated_price >= 0), unit TEXT NOT NULL DEFAULT 'piece' CHECK(unit IN ('kg','g','litre','ml','packet','piece','bunch')), category TEXT NOT NULL DEFAULT 'essential' CHECK(category IN ('essential','miscellaneous')), purchased INTEGER NOT NULL DEFAULT 0 CHECK(purchased IN (0,1)))",
     );
     await db.execute('CREATE INDEX items_list_id ON shopping_items(list_id)');
   }

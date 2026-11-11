@@ -41,7 +41,9 @@ class _EditDialogState extends State<EditDialog> {
     _name = TextEditingController(
       text: widget.item?.name ?? widget.list?.name ?? '',
     );
-    final amount = isItem ? widget.item?.price : widget.list?.budget ?? 0;
+    final amount = isItem
+        ? (widget.item?.actualTotal ?? widget.item?.price)
+        : widget.list?.budget ?? 0;
     _amount = TextEditingController(
       text: amount == null ? '' : moneyInput(amount),
     );
@@ -79,7 +81,12 @@ class _EditDialogState extends State<EditDialog> {
               widget.listId!,
               _name.text,
               parseQuantity(_quantity.text)! / 1000,
-              parseMoney(_amount.text),
+              widget.item?.actualTotal != null
+                  ? null
+                  : parseMoney(_amount.text),
+              actualTotal: widget.item?.actualTotal != null
+                  ? parseMoney(_amount.text)
+                  : null,
               id: widget.item?.id,
               estimatedPrice: parseMoney(_estimate.text),
               unit: _unit,
@@ -152,7 +159,9 @@ class _EditDialogState extends State<EditDialog> {
                 ),
                 decoration: InputDecoration(
                   labelText: isItem
-                      ? 'Actual unit price (₹, optional)'
+                      ? (widget.item?.actualTotal != null
+                            ? 'Actual total paid (₹, optional)'
+                            : 'Actual unit price (₹, optional)')
                       : 'Budget (₹)',
                 ),
                 validator: (v) => isItem && (v ?? '').trim().isEmpty

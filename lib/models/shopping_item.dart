@@ -2,7 +2,7 @@ import '../services/quantity.dart';
 
 enum ItemCategory { essential, miscellaneous }
 
-enum ItemUnit { kg, g, litre, ml, packet, piece }
+enum ItemUnit { kg, g, litre, ml, packet, piece, bunch }
 
 class ShoppingItem {
   const ShoppingItem({
@@ -15,16 +15,18 @@ class ShoppingItem {
     this.unit = ItemUnit.piece,
     this.category = ItemCategory.essential,
     this.estimatedPrice,
+    this.actualTotal,
   });
   final int id, listId;
   final num quantity;
-  final int? price, estimatedPrice;
+  final int? price, estimatedPrice, actualTotal;
   final ItemUnit unit;
   final ItemCategory category;
   final String name;
   final bool purchased;
   int? get total =>
-      price == null ? null : extendedPrice(price!, quantityMillis(quantity));
+      actualTotal ??
+      (price == null ? null : extendedPrice(price!, quantityMillis(quantity)));
   int? get estimatedTotal => estimatedPrice == null
       ? null
       : extendedPrice(estimatedPrice!, quantityMillis(quantity));
@@ -36,6 +38,7 @@ class ShoppingItem {
     name: r['name'] as String,
     quantity: (r['quantity_millis'] as int) / 1000,
     price: r['price'] as int?,
+    actualTotal: r['actual_total'] as int?,
     estimatedPrice: r['estimated_price'] as int?,
     unit: ItemUnit.values.byName(r['unit'] as String),
     category: ItemCategory.values.byName(r['category'] as String),

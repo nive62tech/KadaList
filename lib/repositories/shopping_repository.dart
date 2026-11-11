@@ -58,11 +58,14 @@ class ShoppingRepository {
     int? price, {
     int? id,
     int? estimatedPrice,
+    int? actualTotal,
     ItemUnit unit = ItemUnit.piece,
     ItemCategory category = ItemCategory.essential,
   }) async {
     final millis = quantityMillis(quantity);
-    if ((price != null && (price < 0 || price > 99999999999)) ||
+    if ((actualTotal != null &&
+            (actualTotal < 0 || actualTotal > 99999999999)) ||
+        (price != null && (price < 0 || price > 99999999999)) ||
         (estimatedPrice != null &&
             (estimatedPrice < 0 || estimatedPrice > 99999999999))) {
       throw ArgumentError('Invalid quantity or price');
@@ -72,6 +75,7 @@ class ShoppingRepository {
       'name': _name(name),
       'quantity_millis': millis,
       'price': price,
+      'actual_total': actualTotal,
       'estimated_price': estimatedPrice,
       'unit': unit.name,
       'category': category.name,
@@ -93,6 +97,19 @@ class ShoppingRepository {
     await (await database.database).update(
       'shopping_items',
       {'purchased': value ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Store the exact total paid, independently of quantity and unit price.
+  Future<void> purchaseWithTotal(int id, int? total) async {
+    if (total != null && (total < 0 || total > 99999999999)) {
+      throw ArgumentError('Invalid actual total');
+    }
+    await (await database.database).update(
+      'shopping_items',
+      {'purchased': 1, 'actual_total': total, 'price': null},
       where: 'id = ?',
       whereArgs: [id],
     );

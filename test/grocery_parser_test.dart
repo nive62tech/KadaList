@@ -5,6 +5,44 @@ import 'package:kadalist/services/grocery_parser.dart';
 
 void main() {
   final parser = GroceryParser();
+  test('conflicting Manglish quantities require confirmation', () {
+    for (final text in [
+      'rand kilo thakkali moonnu kilo',
+      'noor pachamulak arakkilo',
+      '2 kg rice 3 kg',
+    ]) {
+      final item = parser.parse(text).single;
+      expect(item.quantity, isNull, reason: text);
+      expect(item.issues.join(' '), contains('Conflicting'));
+      expect(item.name, anyOf('Tomato', 'Green chilli', 'Rice'));
+    }
+  });
+  test('beans spelling and missing unit remain explicit', () {
+    final item = parser.parse('beens oru').single;
+    expect(item.name, 'Beans');
+    expect(item.quantity, 1);
+    expect(item.unit, isNull);
+    expect(item.ambiguous, isTrue);
+  });
+  test('bunch attachment must be clear', () {
+    final clear = parser.parse('rand kett cheera').single;
+    expect(
+      (clear.name, clear.quantity, clear.unit),
+      ('Spinach', 2, ItemUnit.bunch),
+    );
+    final unclear = parser.parse('payar rand kett cheera');
+    expect(unclear.map((i) => i.name), ['Cowpeas', 'Spinach']);
+    expect(unclear.every((i) => i.quantity == null && i.ambiguous), isTrue);
+    final separated = parser.parse('payar, rand kettu cheera');
+    expect(separated.last.quantity, 2);
+  });
+  test('mixed scripts and expanded units stay deterministic', () {
+    final items = parser.parse(
+      'രണ്ട് കെട്ട് ചീര, nooru g pachamulaku, ara litre milk, kaal kg vendakka, 250 ml പാൽ',
+    );
+    expect(items.map((i) => i.quantity), [2, 100, 0.5, 0.25, 250]);
+    expect(items.every((i) => !i.ambiguous), isTrue);
+  });
   final examples = <(String, List<(String, num, ItemUnit)>)>[
     (
       '2 kg rice, 500 g sugar',

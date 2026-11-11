@@ -63,6 +63,12 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 200)),
     );
     await tester.pumpAndSettle();
+    expect(find.text('Save price'), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save price'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
     expect(find.text('Over budget by ₹20.00'), findsOneWidget);
     await tester.tap(find.byTooltip('Edit list and budget'));
     await tester.pumpAndSettle();

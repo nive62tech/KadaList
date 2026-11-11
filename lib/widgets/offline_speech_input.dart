@@ -40,6 +40,10 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
   String _message =
       'Import a multilingual Whisper model once, then speak offline. Audio stays in memory. Clips are limited to 20 seconds.';
   Timer? _timer;
+  Timer? _clockTimer;
+  final _captureWatch = Stopwatch();
+  final _inferenceWatch = Stopwatch();
+  Map<String, dynamic>? _diagnostics;
   int _generation = 0;
   bool _transcribing = false;
   _SpeechStatus _status = _SpeechStatus.ready;
@@ -55,6 +59,9 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
     if (state != AppLifecycleState.resumed && (_recording || _transcribing)) {
       _generation++;
       _timer?.cancel();
+      _clockTimer?.cancel();
+      _captureWatch.stop();
+      _inferenceWatch.stop();
       unawaited(widget.speech.cancel().catchError((Object _) {}));
       setState(() {
         _recording = false;
@@ -117,7 +124,7 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
         setState(() {
           _status = _SpeechStatus.modelRequired;
           _message =
-              'Import a multilingual ggml-tiny, base or small .bin model first. English-only .en models are rejected. You can also type your list.';
+              'Import a multilingual ggml-tiny, base or small .bin model first. Tap Import model file below and select a local file. English-only .en models are rejected. You can also type your list.';
         });
       }
       return;
@@ -129,25 +136,39 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
     }
     setState(() {
       _recording = true;
+      _captureWatch.reset();
+      _captureWatch.start();
+      _inferenceWatch.reset();
+      _diagnostics = null;
       _status = _SpeechStatus.recording;
       _message = 'Listening on device… Tap Stop and transcribe when finished.';
     });
     _timer = Timer(const Duration(seconds: 20), _stop);
+    _clockTimer?.cancel();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   });
 
   Future<void> _stop() async {
     final generation = _generation;
     _timer?.cancel();
+    _captureWatch.stop();
+    _inferenceWatch.reset();
+    _inferenceWatch.start();
     setState(() {
       _recording = false;
       _transcribing = true;
       _message = 'Transcribing on device… This can take a while.';
     });
     await _run(() async {
-      final text = await widget.speech.stop();
+      final result = await widget.speech.stop();
+      _inferenceWatch.stop();
+      _clockTimer?.cancel();
       if (!mounted || generation != _generation) return;
-      if (text.trim().isNotEmpty) widget.onTranscript(text.trim());
+      final text = result.text.trim();
       setState(() {
+        _diagnostics = result.diagnostics;
         _status = text.trim().isEmpty
             ? _SpeechStatus.error
             : _SpeechStatus.ready;
@@ -155,13 +176,54 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
             ? 'No speech recognized. Try again or type your list.'
             : 'Check the transcript, especially quantities, before reviewing items.';
       });
+      if (text.isNotEmpty) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Review speech transcript'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Recognition can be wrong. Add only if this matches what you said. You can edit it in Grocery text before reviewing items.',
+                  ),
+                  if (result.diagnostics['limitReached'] == true)
+                    const Text(
+                      'The 20-second limit was reached. The end of your list may be missing.',
+                    ),
+                  const SizedBox(height: 12),
+                  SelectableText(text),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Discard'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Add to grocery text'),
+              ),
+            ],
+          ),
+        );
+        if (mounted && generation == _generation && accepted == true) {
+          widget.onTranscript(text);
+        }
+      }
     }, status: _SpeechStatus.processing);
+    _clockTimer?.cancel();
+    _inferenceWatch.stop();
     if (mounted) setState(() => _transcribing = false);
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _clockTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(widget.speech.cancel().catchError((Object _) {}));
     super.dispose();
@@ -205,6 +267,22 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               Text(_message),
+              if (_recording || _transcribing || _diagnostics != null)
+                Text(
+                  'Recording: ${(_captureWatch.elapsedMilliseconds / 1000).toStringAsFixed(1)} s; '
+                  'processing: ${(_inferenceWatch.elapsedMilliseconds / 1000).toStringAsFixed(1)} s',
+                ),
+              if (_diagnostics != null)
+                ExpansionTile(
+                  title: const Text('Speech diagnostics (no audio)'),
+                  children: [
+                    SelectableText(
+                      _diagnostics!.entries
+                          .map((e) => '${e.key}: ${e.value}')
+                          .join('\n'),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -219,7 +297,7 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
                       if (mounted) {
                         setState(
                           () => _message = imported
-                              ? 'Model ready. Recognition works without an internet connection.'
+                              ? 'Model imported and validated. Try a recording and check the transcript on this device.'
                               : 'Model import cancelled.',
                         );
                       }
@@ -233,7 +311,11 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
             ),
           ],
         ),
-        if (_busy) const LinearProgressIndicator(),
+        if (_busy &&
+            (_status == _SpeechStatus.preparing ||
+                _status == _SpeechStatus.importing ||
+                _status == _SpeechStatus.processing))
+          const LinearProgressIndicator(),
       ],
     );
   }

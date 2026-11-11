@@ -10,11 +10,15 @@ void main() {
   late List<MethodCall> calls;
   var modelReady = true;
   String? failure;
+  String? importFailure;
+  String? recognitionFailure;
   Completer<String>? pendingTranscript;
   setUp(() {
     calls = [];
     modelReady = true;
     failure = null;
+    importFailure = null;
+    recognitionFailure = null;
     pendingTranscript = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(OfflineSpeech.channel, (call) async {
@@ -28,9 +32,26 @@ void main() {
               }
               return null;
             case 'stop':
-              if (pendingTranscript != null) return pendingTranscript!.future;
-              return 'രണ്ട് കിലോ അരി, half litre milk';
+              if (recognitionFailure != null) {
+                throw PlatformException(
+                  code: 'recognition',
+                  message: recognitionFailure,
+                );
+              }
+              if (pendingTranscript != null) {
+                return {
+                  'text': await pendingTranscript!.future,
+                  'diagnostics': <String, dynamic>{},
+                };
+              }
+              return {
+                'text': 'രണ്ട് കിലോ അരി, half litre milk',
+                'diagnostics': {'sampleRate': 16000, 'limitReached': true},
+              };
             case 'importModel':
+              if (importFailure != null) {
+                throw PlatformException(code: 'model', message: importFailure);
+              }
               modelReady = true;
               return true;
             default:
@@ -50,6 +71,88 @@ void main() {
       const MaterialApp(home: GroceryTextScreen(listId: 1)),
     );
   }
+
+  testWidgets(
+    'discard preserves existing text and explicit English reaches native code',
+    (tester) async {
+      await open(tester);
+      await tester.enterText(find.byType(TextField), 'keep this');
+      await tester.tap(find.byType(DropdownButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('English').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Speak offline'));
+      await tester.pumpAndSettle();
+      expect(calls.firstWhere((c) => c.method == 'start').arguments, {
+        'language': 'en',
+      });
+      await tester.tap(find.text('Stop and transcribe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'keep this',
+      );
+      expect(find.text('Speech diagnostics (no audio)'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'experimental mixed mode is opt-in and capture stops at twenty seconds',
+    (tester) async {
+      await open(tester);
+      await tester.tap(find.byType(DropdownButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Automatic / mixed (experimental)').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Speak offline'));
+      await tester.pumpAndSettle();
+      expect(calls.firstWhere((c) => c.method == 'start').arguments, {
+        'language': 'auto',
+      });
+      await tester.pump(const Duration(seconds: 20));
+      await tester.pumpAndSettle();
+      expect(calls.where((c) => c.method == 'stop'), hasLength(1));
+      expect(find.text('Review speech transcript'), findsOneWidget);
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        isEmpty,
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'import and inference failures visibly preserve manual text',
+    (tester) async {
+      await open(tester);
+      await tester.enterText(find.byType(TextField), 'keep this');
+      importFailure = 'Choose a multilingual GGML .bin model without .en.';
+      await tester.tap(find.text('Import model file'));
+      await tester.pumpAndSettle();
+      expect(find.text(importFailure!), findsOneWidget);
+      expect(find.text('Speech error'), findsOneWidget);
+      expect(calls.where((c) => c.method == 'start'), isEmpty);
+      await tester.tap(find.text('Speak offline'));
+      await tester.pumpAndSettle();
+      recognitionFailure = 'Offline transcription failed. Try again.';
+      await tester.tap(find.text('Stop and transcribe'));
+      await tester.pumpAndSettle();
+      expect(find.text(recognitionFailure!), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'keep this',
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   testWidgets(
     'voice screen and model import do not initiate microphone permission flow',
@@ -77,7 +180,7 @@ void main() {
   );
 
   testWidgets(
-    'speech appends editable multilingual text and requires item review',
+    'speech requires acceptance before appending and item review',
     (tester) async {
       await open(tester);
       await tester.enterText(find.byType(TextField), '1 kg sugar');
@@ -88,6 +191,17 @@ void main() {
       });
       expect(find.text('Recording'), findsOneWidget);
       await tester.tap(find.text('Stop and transcribe'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '1 kg sugar',
+      );
+      expect(find.text('Review speech transcript'), findsOneWidget);
+      expect(
+        find.textContaining('end of your list may be missing'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Add to grocery text'));
       await tester.pumpAndSettle();
       final field = tester.widget<TextField>(find.byType(TextField));
       expect(
@@ -114,6 +228,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(calls.where((c) => c.method == 'start'), isEmpty);
       expect(find.text('Model required'), findsOneWidget);
+      expect(find.textContaining('Tap Import model file'), findsOneWidget);
+      expect(calls.map((c) => c.method), ['hasModel']);
       expect(
         tester.widget<TextField>(find.byType(TextField)).controller!.text,
         'keep this',
