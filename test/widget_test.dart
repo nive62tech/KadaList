@@ -55,6 +55,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Planned items exceed budget by ₹20.00'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byType(Checkbox),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.byType(Checkbox));
+    await tester.pumpAndSettle();
     await tester.runAsync(() async {
       await tester.tap(find.byType(Checkbox));
       await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -70,7 +77,9 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(find.text('Over budget by ₹20.00'), findsOneWidget);
-    await tester.tap(find.byTooltip('Edit list and budget'));
+    await tester.tap(find.byTooltip('List actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename / edit budget'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).first, 'Renamed');
     await tester.runAsync(() async {

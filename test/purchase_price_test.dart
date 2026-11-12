@@ -45,11 +45,17 @@ void main() {
       }
 
       Future<void> check() async {
+        await tester.scrollUntilVisible(
+          find.byType(Checkbox),
+          150,
+          scrollable: find.byType(Scrollable).first,
+        );
         await tester.ensureVisible(find.byType(Checkbox));
+        await tester.pumpAndSettle();
         await tester.runAsync(() async {
           await tester.tap(find.byType(Checkbox));
         });
-        await tester.pumpAndSettle();
+        await settle();
       }
 
       Future<void> action(String label) async {
@@ -78,12 +84,17 @@ void main() {
       expect(store.itemsFor(listId).single.total, 1235);
       expect(store.itemsFor(listId).single.purchased, isTrue);
       await tester.scrollUntilVisible(
-        find.text('Actual spent ₹12.35'),
+        find.text('\u20b912.35'),
         -200,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(find.text('Remaining -₹2.35'), findsOneWidget);
+      expect(find.text('-\u20b92.35'), findsOneWidget);
       expect(find.text('Over budget by ₹2.35'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byTooltip('Edit actual price for Rice'),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.ensureVisible(find.byTooltip('Edit actual price for Rice'));
       await tester.tap(find.byTooltip('Edit actual price for Rice'));
       await tester.pumpAndSettle();
@@ -91,6 +102,11 @@ void main() {
       await tester.enterText(find.byType(TextFormField), '0');
       await action('Save price');
       expect(store.itemsFor(listId).single.total, 0);
+      await tester.scrollUntilVisible(
+        find.byTooltip('Edit actual price for Rice'),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.ensureVisible(find.byTooltip('Edit actual price for Rice'));
       await tester.tap(find.byTooltip('Edit actual price for Rice'));
       await tester.pumpAndSettle();

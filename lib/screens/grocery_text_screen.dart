@@ -67,7 +67,7 @@ class _GroceryTextScreenState extends State<GroceryTextScreen> {
           children: [
             if (widget.voiceFirst) _voiceInput(),
             const Text(
-              'Malayalam, English or Manglish — processed entirely on this device. Review every item before saving. Use commas or new lines for unfamiliar names.',
+              'Type or paste Manglish, Malayalam or English. You can also use your keyboard microphone; its privacy and offline availability depend on your keyboard provider. Use commas or new lines between items.',
             ),
             const SizedBox(height: 16),
             TextField(

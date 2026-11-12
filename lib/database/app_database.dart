@@ -14,15 +14,26 @@ class AppDatabase {
         databasePath ??
             path.join(await _factory.getDatabasesPath(), 'kadalist.db'),
         options: OpenDatabaseOptions(
-          version: 4,
+          version: 5,
           onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
           onCreate: (db, version) async {
             await db.execute(
-              'CREATE TABLE shopping_lists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, budget INTEGER NOT NULL CHECK(budget >= 0), created_at INTEGER NOT NULL)',
+              'CREATE TABLE shopping_lists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, budget INTEGER NOT NULL CHECK(budget >= 0), created_at INTEGER NOT NULL, completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1)))',
             );
             await _createItems(db);
+            await db.execute(
+              'CREATE TABLE local_preferences (name TEXT PRIMARY KEY, value INTEGER NOT NULL)',
+            );
           },
           onUpgrade: (db, oldVersion, newVersion) async {
+            if (oldVersion < 5) {
+              await db.execute(
+                'CREATE TABLE local_preferences (name TEXT PRIMARY KEY, value INTEGER NOT NULL)',
+              );
+              await db.execute(
+                'ALTER TABLE shopping_lists ADD COLUMN completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1))',
+              );
+            }
             if (oldVersion < 2) {
               await db.execute(
                 'ALTER TABLE shopping_items RENAME TO legacy_items',

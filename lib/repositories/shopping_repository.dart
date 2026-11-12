@@ -43,6 +43,72 @@ class ShoppingRepository {
     }
   }
 
+  Future<bool> showVoiceTips() async {
+    final rows = await (await database.database).query(
+      'local_preferences',
+      where: 'name = ?',
+      whereArgs: ['voice_tips'],
+    );
+    return rows.isEmpty || rows.single['value'] == 1;
+  }
+
+  Future<void> setVoiceTips(bool value) async {
+    final db = await database.database;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'local_preferences',
+        where: 'name = ?',
+        whereArgs: ['voice_tips'],
+      );
+      await txn.insert('local_preferences', {
+        'name': 'voice_tips',
+        'value': value ? 1 : 0,
+      });
+    });
+  }
+
+  Future<void> finishList(int id) async {
+    await (await database.database).update(
+      'shopping_lists',
+      {'completed': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> restartList(int id) async {
+    final db = await database.database;
+    return db.transaction((txn) async {
+      final source = (await txn.query(
+        'shopping_lists',
+        where: 'id = ? AND completed = 1',
+        whereArgs: [id],
+      )).single;
+      final newId = await txn.insert('shopping_lists', {
+        'name': source['name'],
+        'budget': source['budget'],
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+        'completed': 0,
+      });
+      final items = await txn.query(
+        'shopping_items',
+        where: 'list_id = ?',
+        whereArgs: [id],
+      );
+      for (final item in items) {
+        await txn.insert('shopping_items', {
+          ...item,
+          'id': null,
+          'list_id': newId,
+          'purchased': 0,
+          'actual_total': null,
+          'price': null,
+        });
+      }
+      return newId;
+    });
+  }
+
   Future<void> deleteList(int id) async {
     await (await database.database).delete(
       'shopping_lists',

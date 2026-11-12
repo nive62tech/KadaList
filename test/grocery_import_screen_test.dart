@@ -25,10 +25,18 @@ void main() {
         await tester.pumpWidget(KadaListApp(repository: repo));
         await Future<void>.delayed(const Duration(milliseconds: 100));
       });
+      final initialStore = tester
+          .element(find.text('KadaList'))
+          .read<ShoppingStore>();
+      await tester.runAsync(() async {
+        while (initialStore.busy) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
       await tester.pumpAndSettle();
       await tester.tap(find.text('Weekly'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Paste or type grocery list'));
+      await tester.tap(find.text('Paste or type grocery list'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Review extracted items'));
       await tester.pumpAndSettle();
@@ -77,7 +85,7 @@ void main() {
         expect(items.single.price, isNull);
       });
       // Leaving the review without confirmation must not add anything.
-      await tester.tap(find.byTooltip('Paste or type grocery list'));
+      await tester.tap(find.text('Paste or type grocery list'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '1kg rice');
       await tester.tap(find.text('Review extracted items'));

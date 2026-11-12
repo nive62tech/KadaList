@@ -73,18 +73,17 @@ void main() {
   }
 
   testWidgets(
-    'discard preserves existing text and explicit English reaches native code',
+    'Manglish defaults to Malayalam recognition and discard preserves text',
     (tester) async {
       await open(tester);
       await tester.enterText(find.byType(TextField), 'keep this');
-      await tester.tap(find.byType(DropdownButton<String>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('English').last);
-      await tester.pumpAndSettle();
+      expect(find.byType(DropdownButton<String>), findsNothing);
+      expect(find.text('Manglish - offline voice'), findsOneWidget);
+      expect(find.textContaining('keyboard provider'), findsOneWidget);
       await tester.tap(find.text('Speak offline'));
       await tester.pumpAndSettle();
       expect(calls.firstWhere((c) => c.method == 'start').arguments, {
-        'language': 'en',
+        'language': 'ml',
       });
       await tester.tap(find.text('Stop and transcribe'));
       await tester.pumpAndSettle();
@@ -101,17 +100,13 @@ void main() {
   );
 
   testWidgets(
-    'experimental mixed mode is opt-in and capture stops at twenty seconds',
+    'Manglish capture stops at twenty seconds',
     (tester) async {
       await open(tester);
-      await tester.tap(find.byType(DropdownButton<String>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Automatic / mixed (experimental)').last);
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Speak offline'));
       await tester.pumpAndSettle();
       expect(calls.firstWhere((c) => c.method == 'start').arguments, {
-        'language': 'auto',
+        'language': 'ml',
       });
       await tester.pump(const Duration(seconds: 20));
       await tester.pumpAndSettle();

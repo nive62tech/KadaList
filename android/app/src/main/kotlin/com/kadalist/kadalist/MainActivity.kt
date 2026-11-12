@@ -10,6 +10,27 @@ class MainActivity : FlutterActivity() {
     private var speech: OfflineSpeech? = null
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kadalist/share").setMethodCallHandler { call, result ->
+            if (call.method != "shareText") {
+                result.notImplemented()
+            } else {
+                val text = call.argument<String>("text")
+                if (text.isNullOrBlank()) {
+                    result.error("share", "No list text to share.", null)
+                } else {
+                    try {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                        }
+                        startActivity(Intent.createChooser(send, "Share shopping list"))
+                        result.success(null)
+                    } catch (error: Exception) {
+                        result.error("share", "Unable to open share sheet.", null)
+                    }
+                }
+            }
+        }
         speech = OfflineSpeech(this, MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kadalist/offline_speech"))
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

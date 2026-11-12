@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:kadalist/services/list_share.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -60,9 +62,35 @@ void main() {
     await settleData();
     await tester.tap(find.text('Weekly'));
     await tester.pumpAndSettle();
-    expect(find.text('Actual spent ₹50.00'), findsOneWidget);
-    expect(find.text('Remaining ₹50.00'), findsOneWidget);
+    expect(find.text('Actual spent'), findsOneWidget);
+    expect(find.text('Remaining budget'), findsOneWidget);
+    expect(find.text('\u20b950.00'), findsNWidgets(2));
+    expect(find.byType(Card), findsNWidgets(2));
     expect(find.text('Projected balance ₹10.00'), findsOneWidget);
+    expect(find.byKey(const ValueKey('inline-microphone')), findsOneWidget);
+    await tester.tap(find.text('Add item'));
+    await tester.pumpAndSettle();
+    expect(
+      find.widgetWithText(DropdownButtonFormField<ItemCategory>, 'Category'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('List actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Share'), findsOneWidget);
+    await tester.tap(find.text('Rename / edit budget'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit shopping list'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('List actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete "Weekly"?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
     // Scroll through sections on small screens.
     await tester.scrollUntilVisible(
       find.text('Rice'),
@@ -78,6 +106,8 @@ void main() {
     );
     expect(find.text('Miscellaneous'), findsOneWidget);
     expect(find.textContaining('0.25 packet'), findsOneWidget);
+    await tester.ensureVisible(find.text('Treat'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Treat'));
     await tester.pumpAndSettle();
     expect(find.text('Miscellaneous'), findsWidgets);
@@ -96,12 +126,124 @@ void main() {
     });
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
-      find.text('Actual spent ₹100.00'),
+      find.text('Actual spent'),
       -200,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('Actual spent ₹100.00'), findsOneWidget);
+    expect(find.text('Actual spent'), findsOneWidget);
+    expect(find.text('\u20b9100.00'), findsOneWidget);
     expect(find.text('Planned items exceed budget by ₹40.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(db.close);
+  });
+  testWidgets('rename, local share, miscellaneous entry and confirmed deletion', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1000, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final db = AppDatabase(
+      databasePath: inMemoryDatabasePath,
+      factory: databaseFactoryFfiNoIsolate,
+    );
+    final repo = ShoppingRepository(db);
+    await tester.runAsync(() async {
+      await repo.saveList('Weekend', 25000);
+      await tester.pumpWidget(KadaListApp(repository: repo));
+    });
+    await tester.pump();
+    final store = tester.element(find.text('KadaList')).read<ShoppingStore>();
+    Future<void> settled() async {
+      await tester.runAsync(() async {
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (store.busy) {
+          if (DateTime.now().isAfter(deadline)) {
+            throw StateError('Store did not settle');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pumpAndSettle();
+    }
+
+    await settled();
+    final id = store.lists.single.id;
+    Future<void> action(String label) async {
+      await tester.tap(find.byTooltip('List actions'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.text(label));
+      });
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.text('Weekend'));
+    await tester.pumpAndSettle();
+    await action('Rename / edit budget');
+    await tester.enterText(find.byType(TextFormField).first, 'Family');
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save'));
+    });
+    await settled();
+    expect(store.lists.single.name, 'Family');
+    expect(store.lists.single.id, id);
+    expect(store.lists.single.budget, 25000);
+    await tester.tap(find.text('Add item'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'Soap');
+    await tester.ensureVisible(
+      find.byType(DropdownButtonFormField<ItemCategory>),
+    );
+    await tester.tap(find.byType(DropdownButtonFormField<ItemCategory>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Miscellaneous').last);
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save'));
+    });
+    await settled();
+    expect(store.itemsFor(id).single.category, ItemCategory.miscellaneous);
+    expect(store.itemsFor(id).single.name, 'Soap');
+    MethodCall? shared;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(ListShare.channel, (call) async {
+          shared = call;
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(ListShare.channel, null),
+    );
+    await action('Share');
+    expect(shared!.method, 'shareText');
+    expect(
+      (shared!.arguments as Map)['text'],
+      'Family\nBudget \u20b9250.00\nEssentials\nMiscellaneous\n[ ] Soap - 1 piece',
+    );
+    await action('Delete');
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(store.itemsFor(id), hasLength(1));
+    await action('Delete');
+    await tester.runAsync(() async {
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    });
+    for (
+      var attempt = 0;
+      attempt < 100 && (store.lists.isNotEmpty || store.busy);
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
+    await settled();
+    expect(find.text('KadaList'), findsOneWidget);
+    expect(store.lists, isEmpty);
+    await tester.runAsync(() async {
+      expect(await repo.items(), isEmpty);
+    });
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(db.close);

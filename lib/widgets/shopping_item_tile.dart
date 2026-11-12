@@ -8,8 +8,13 @@ import 'edit_dialog.dart';
 import 'purchase_price_dialog.dart';
 
 class ShoppingItemTile extends StatelessWidget {
-  const ShoppingItemTile({super.key, required this.item});
+  const ShoppingItemTile({
+    super.key,
+    required this.item,
+    this.readOnly = false,
+  });
   final ShoppingItem item;
+  final bool readOnly;
   @override
   Widget build(BuildContext context) {
     final store = context.watch<ShoppingStore>();
@@ -29,7 +34,7 @@ class ShoppingItemTile extends StatelessWidget {
     return ListTile(
       leading: Checkbox(
         value: item.purchased,
-        onChanged: store.busy
+        onChanged: (store.busy || readOnly)
             ? null
             : (value) => value == true
                   ? enterPurchasePrice(context, item)
@@ -43,8 +48,8 @@ class ShoppingItemTile extends StatelessWidget {
           decoration: item.purchased ? TextDecoration.lineThrough : null,
         ),
       ),
-      subtitle: Text(details.join('\n')),
-      onTap: store.busy
+      subtitle: Text(details.join(' | ')),
+      onTap: (store.busy || readOnly)
           ? null
           : () => editItem(context, item.listId, item: item),
       trailing: Row(
@@ -54,14 +59,14 @@ class ShoppingItemTile extends StatelessWidget {
             IconButton(
               tooltip: 'Edit actual price for ${item.name}',
               icon: const Icon(Icons.price_change_outlined),
-              onPressed: store.busy
+              onPressed: (store.busy || readOnly)
                   ? null
                   : () => enterPurchasePrice(context, item),
             ),
           IconButton(
             tooltip: 'Delete ${item.name}',
             icon: const Icon(Icons.delete_outline),
-            onPressed: store.busy
+            onPressed: (store.busy || readOnly)
                 ? null
                 : () async {
                     if (await confirmDelete(context, item.name)) {

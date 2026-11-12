@@ -11,6 +11,7 @@ class ShoppingStore extends ChangeNotifier {
   List<ShoppingList> get lists => List.unmodifiable(_lists);
   List<ShoppingItem> itemsFor(int id) =>
       _items.where((item) => item.listId == id).toList();
+  bool voiceTips = true;
   bool busy = false;
   String? error;
   bool _disposed = false;
@@ -31,6 +32,7 @@ class ShoppingStore extends ChangeNotifier {
     try {
       await action();
       final lists = await repository.lists();
+      voiceTips = await repository.showVoiceTips();
       final items = await repository.items();
       _lists = lists;
       _items = items;

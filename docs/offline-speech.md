@@ -47,13 +47,13 @@ a physical Android device in this workspace.
    Use trusted model files. `.en` models, medium/large, ONNX, GGUF and unrelated
    binaries are not accepted. Compatible quantized GGML versions of tiny/base/small
    are allowed. No model is bundled in the APK and the app never downloads one.
-3. Open a shopping list → toolbar microphone (**Add groceries by voice**) → **Import model file**.
+3. Open a shopping list → bottom microphone (**Add groceries by voice**) → **Import model file**.
    Select the local `.bin`. The app copies and validates it in private storage.
    Invalid/cancelled imports preserve the previous model. Imports are capped at
    600 MiB, and only known tiny/base/small multilingual model headers are accepted.
    Replacing a model requires free space for the existing file plus the new file,
    and validation temporarily loads the new model into RAM.
-4. Choose Malayalam, English or automatic/mixed. Grant microphone permission,
+4. Manglish is the default voice mode (Whisper language `ml`). Grant microphone permission,
    tap **Speak offline**, speak a short list, then **Stop and transcribe**.
    The microphone stops after at most 20 seconds even if the UI timer is delayed.
    Recognition runs on one background executor, using at most four CPU threads.
@@ -63,13 +63,23 @@ a physical Android device in this workspace.
    Explicitly confirm names, quantities and units before saving. Speech text is
    appended to existing text, never saved directly as shopping records.
 
-Malayalam mode is the default. Try Malayalam mode for Malayalam-dominant speech
-with English grocery words, and English for English-dominant speech. Automatic
-mode detects a dominant language and is experimental for mixed speech. Separate
-clips by language when switching fails. Output can normalize words into one
-script or omit/alter code-switched words. There is no guarantee of Manglish
-romanization. Tiny is a footprint/smoke-test option, not a promise of usable
-Malayalam grocery accuracy. Compare base and small with native speakers.
+Manglish is the user-facing default. The pinned whisper.cpp v1.8.3 mapping in
+`src/whisper.cpp` maps `ml` to Malayalam (language ID 37). The UI sends `ml`,
+with native `translate=false`, and offers no language dropdown. Manglish is
+not a Whisper language code. Malayalam-oriented recognition can emit Malayalam
+script and omit or alter English words; romanized output and improved accuracy
+are not guaranteed. Review every transcript before accepting it.
+
+Typing/pasting remains available. A keyboard microphone is a separate fallback:
+its recognition provider may require connectivity or send audio to a server.
+KadaList's imported-model voice button performs recognition entirely on-device.
+
+Performance review: native code already uses one background worker, capped CPU
+threads and bounded audio. Model loading occurs per transcription and is timed
+separately from inference. Retaining a model could reduce repeated loading, but
+raises idle RAM and lifecycle risks. No caching, decoding, thread or quantization
+changes were introduced without device measurements. Compare diagnostic load
+and inference times, peak memory and thermal behavior before changing these.
 
 Audio is mono PCM at 16 kHz, held only in process memory (at most 320,000 float
 samples, about 1.28 MB before temporary copies). No recording file, transcript
@@ -124,7 +134,7 @@ Physical-device follow-up, using a separately authorized updated build (none was
 built for this investigation):
 
 1. Preserve existing data and type `keep this` in Grocery text. In airplane mode
-   with Wi-Fi off, select Malayalam explicitly. Read the exact reported phrase,
+   with Wi-Fi off, use the default Manglish mode. Read the exact reported phrase,
    stop immediately after speaking, and note recording versus processing time.
 2. Before accepting anything, inspect the raw transcript and diagnostics. Expect
    `sampleRate=16000`, `channels=1`, `language=ml`, decoded language `ml`, and
@@ -135,7 +145,7 @@ built for this investigation):
    clip and confirm it appends, can be corrected, and still requires grocery item
    review before saving. Never assign an item to the incomplete `onnar kilo`.
 4. Repeat a short English reference with English selected, then explicitly choose
-   Automatic/mixed for the mixed reference. Record its decoded language rather
+   the default Manglish mode for the mixed reference. Record its decoded language rather
    than assuming mixed-word recognition. Compare only locally supplied models;
    do not infer tiny-model accuracy from import success.
 5. Test silence, microphone privacy disabled, very short recording, clipping/noise,
@@ -205,17 +215,17 @@ build when authorized. An existing older build cannot validate these changes.
 1. Keep existing shopping data. Note a list budget, a purchased item's exact total
    and an unpurchased estimate. Install the updated build over the existing app
    without uninstalling; confirm those values survive migration.
-2. On a clean test profile with no imported model, open a list, tap the toolbar
+2. On a clean test profile with no imported model, open a list, tap the bottom
    microphone, then Speak offline. Expect Model required and instructions to tap
    Import model file, with no microphone permission request or refresh.
 3. Copy an independently supplied trusted multilingual GGML tiny/base/small .bin
    onto the phone via USB. Tap Import model file. Cancel once; reject an .en model,
    a non-.bin file and a truncated .bin. Import the valid file, restart the app,
    then try an invalid replacement and verify the valid model remains usable.
-4. Enable airplane mode and turn Wi-Fi off. Choose Malayalam, tap Speak offline,
+4. Enable airplane mode and turn Wi-Fi off. Use Manglish, tap Speak offline,
    deny permission, and confirm visible guidance and preserved typed text. Retry
    with permission allowed; verify Recording, Stop and transcribe, then Processing
-   on device and an editable transcript. Repeat for English and Automatic/mixed.
+   on device and an editable transcript. Repeat with Malayalam-dominant and English-mixed phrases.
 5. Read each of the four reported failing phrases and the mixed-script examples
    above. Correct recognition mistakes in the transcript, then Review extracted
    items. Check conflict/unit warnings; resolve every quantity and unit before

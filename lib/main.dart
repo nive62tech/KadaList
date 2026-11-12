@@ -30,7 +30,22 @@ class KadaListApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xff286343),
+          surface: const Color(0xfffffbf2),
+        ),
+        scaffoldBackgroundColor: const Color(0xfffffbf2),
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xfffffbf2)),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          color: const Color(0xffedf2df),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
+        ),
       ),
       home: const HomeScreen(),
     ),

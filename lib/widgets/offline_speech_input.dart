@@ -23,11 +23,15 @@ class OfflineSpeechInput extends StatefulWidget {
     super.key,
     required this.onTranscript,
     this.onActiveChanged,
+    this.inline = false,
+    this.modelOnly = false,
     this.speech = const OfflineSpeech(),
   });
   final ValueChanged<String> onTranscript;
   final ValueChanged<bool>? onActiveChanged;
   final OfflineSpeech speech;
+  final bool inline;
+  final bool modelOnly;
 
   @override
   State<OfflineSpeechInput> createState() => _OfflineSpeechInputState();
@@ -36,7 +40,7 @@ class OfflineSpeechInput extends StatefulWidget {
 class _OfflineSpeechInputState extends State<OfflineSpeechInput>
     with WidgetsBindingObserver {
   bool _recording = false, _busy = false;
-  String _language = 'ml';
+  String? _transcript;
   String _message =
       'Import a multilingual Whisper model once, then speak offline. Audio stays in memory. Clips are limited to 20 seconds.';
   Timer? _timer;
@@ -129,7 +133,8 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
       }
       return;
     }
-    await widget.speech.start(_language);
+    // Whisper uses ml for Malayalam; Manglish is a user-facing mode, not a language code.
+    await widget.speech.start('ml');
     if (!mounted) {
       await widget.speech.cancel();
       return;
@@ -176,7 +181,9 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
             ? 'No speech recognized. Try again or type your list.'
             : 'Check the transcript, especially quantities, before reviewing items.';
       });
-      if (text.isNotEmpty) {
+      if (text.isNotEmpty && widget.inline) {
+        setState(() => _transcript = text);
+      } else if (text.isNotEmpty) {
         final accepted = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -231,84 +238,134 @@ class _OfflineSpeechInputState extends State<OfflineSpeechInput>
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+    if (!widget.inline &&
+        (kIsWeb || defaultTargetPlatform != TargetPlatform.android)) {
       return const SizedBox.shrink();
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 16),
-        const Text(
-          'Offline voice input',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        DropdownButton<String>(
-          value: _language,
-          isExpanded: true,
-          items: const [
-            DropdownMenuItem(value: 'ml', child: Text('Malayalam')),
-            DropdownMenuItem(value: 'en', child: Text('English')),
-            DropdownMenuItem(
-              value: 'auto',
-              child: Text('Automatic / mixed (experimental)'),
-            ),
-          ],
-          onChanged: _busy || _recording
-              ? null
-              : (value) => setState(() => _language = value!),
-        ),
-        Semantics(
-          liveRegion: true,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                _status.label,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(_message),
-              if (_recording || _transcribing || _diagnostics != null)
+        const SizedBox(height: 8),
+        if (!widget.inline)
+          const Text(
+            'Manglish - offline voice',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        if (!widget.inline)
+          const Text(
+            'Speak Malayalam mixed with English. Transcripts may use Malayalam script; review names and quantities.',
+          ),
+        if (!widget.inline ||
+            _status != _SpeechStatus.ready ||
+            _transcript != null)
+          Semantics(
+            liveRegion: true,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 Text(
-                  'Recording: ${(_captureWatch.elapsedMilliseconds / 1000).toStringAsFixed(1)} s; '
-                  'processing: ${(_inferenceWatch.elapsedMilliseconds / 1000).toStringAsFixed(1)} s',
+                  _status.label,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-              if (_diagnostics != null)
-                ExpansionTile(
-                  title: const Text('Speech diagnostics (no audio)'),
-                  children: [
-                    SelectableText(
-                      _diagnostics!.entries
-                          .map((e) => '${e.key}: ${e.value}')
-                          .join('\n'),
-                    ),
-                  ],
-                ),
+                Text(_message),
+                if (_recording || _transcribing || _diagnostics != null)
+                  Text(
+                    'Recording: ${(_captureWatch.elapsedMilliseconds / 1000).toStringAsFixed(1)} s; '
+                    'processing: ${(_inferenceWatch.elapsedMilliseconds / 1000).toStringAsFixed(1)} s',
+                  ),
+                if (_diagnostics != null)
+                  ExpansionTile(
+                    title: const Text('Speech diagnostics (no audio)'),
+                    children: [
+                      SelectableText(
+                        _diagnostics!.entries
+                            .map((e) => '${e.key}: ${e.value}')
+                            .join('\n'),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        if (widget.inline && (_recording || _transcribing))
+          TextButton.icon(
+            onPressed: () async {
+              _generation++;
+              _timer?.cancel();
+              _clockTimer?.cancel();
+              await widget.speech.cancel();
+              if (!mounted) return;
+              setState(() {
+                _recording = false;
+                _transcribing = false;
+                _busy = false;
+                _status = _SpeechStatus.ready;
+                _transcript = null;
+              });
+              widget.onActiveChanged?.call(false);
+            },
+            icon: const Icon(Icons.close),
+            label: const Text('Discard recording'),
+          ),
+        if (_transcript != null) ...[
+          if (_diagnostics?['limitReached'] == true)
+            const Text(
+              '20-second limit reached. The end of your list may be missing.',
+            ),
+          const Text('Review speech transcript'),
+          const Text('Check names and quantities. Recognition can be wrong.'),
+          SelectableText(_transcript!),
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton(
+                onPressed: () => setState(() => _transcript = null),
+                child: const Text('Discard'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final text = _transcript!;
+                  setState(() => _transcript = null);
+                  widget.onTranscript(text);
+                },
+                child: const Text('Accept transcript'),
+              ),
             ],
           ),
-        ),
+        ],
         Wrap(
           spacing: 8,
           children: [
-            OutlinedButton(
-              onPressed: _busy || _recording
-                  ? null
-                  : () => _run(() async {
-                      final imported = await widget.speech.importModel();
-                      if (mounted) {
-                        setState(
-                          () => _message = imported
-                              ? 'Model imported and validated. Try a recording and check the transcript on this device.'
-                              : 'Model import cancelled.',
-                        );
-                      }
-                    }, status: _SpeechStatus.importing),
-              child: const Text('Import model file'),
-            ),
-            FilledButton.icon(
-              onPressed: _busy ? null : (_recording ? _stop : _record),
-              icon: Icon(_recording ? Icons.stop : Icons.mic),
-              label: Text(_recording ? 'Stop and transcribe' : 'Speak offline'),
-            ),
+            if (!widget.inline ||
+                _status == _SpeechStatus.modelRequired ||
+                _status == _SpeechStatus.error)
+              OutlinedButton(
+                onPressed: _busy || _recording
+                    ? null
+                    : () => _run(() async {
+                        final imported = await widget.speech.importModel();
+                        if (mounted) {
+                          setState(
+                            () => _message = imported
+                                ? 'Model imported and validated. Try a recording and check the transcript on this device.'
+                                : 'Model import cancelled.',
+                          );
+                        }
+                      }, status: _SpeechStatus.importing),
+                child: const Text('Import model file'),
+              ),
+            if (!widget.modelOnly)
+              Tooltip(
+                message: 'Add groceries by voice',
+                child: FilledButton.icon(
+                  onPressed: _busy ? null : (_recording ? _stop : _record),
+                  icon: Icon(_recording ? Icons.stop : Icons.mic),
+                  label: Text(
+                    _recording ? 'Stop and transcribe' : 'Speak offline',
+                  ),
+                  key: const ValueKey('inline-microphone'),
+                ),
+              ),
           ],
         ),
         if (_busy &&
